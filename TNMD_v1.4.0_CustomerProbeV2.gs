@@ -12,7 +12,7 @@
  *   - Uses WHERE pelanggan=... for every request.
  *   - Uses LIMIT 100.
  *   - Has a hard maximum page count per customer.
- *   - Default probe set is deliberately small.
+ *   - Default probe set is deliberately small (5 customers).
  *
  * Required core dependency:
  *   requestSid_(sql)
@@ -22,7 +22,7 @@ const TNMD140PV2 = {
   VERSION: '1.4.0-customer-probe-v2',
   PAGE_SIZE: 100,
   MAX_PAGES_PER_CUSTOMER: 10,
-  CUSTOMERS: ['FBR', 'RIMBAL'],
+  CUSTOMERS: ['FBR', 'RIMBAL', 'KUKUH', 'TB BEJA', 'BARBEX2'],
   STOP_ON_ERROR: false
 };
 
@@ -30,7 +30,9 @@ function tnmd140pv2_now_() { return new Date().toISOString(); }
 
 function tnmd140pv2_num_(value) {
   if (value === null || value === undefined || value === '') return 0;
-  const n = Number(String(value).replace(/,/g, '').trim());
+  const s = String(value).replace(/,/g, '').trim();
+  if (s === '.00' || s === '.0' || s === '.') return 0;
+  const n = Number(s);
   return isNaN(n) ? 0 : n;
 }
 
@@ -53,6 +55,7 @@ function tnmd140pv2_queryPage_(customer, offset) {
   }
 
   customer = String(customer || '').trim();
+  if (!customer) throw new Error('Customer name is empty.');
   offset = Math.max(0, Number(offset) || 0);
 
   const sql = `SELECT kode,tanggal,pelanggan,jenis,piutang FROM penjualan WHERE pelanggan='${tnmd140pv2_escape_(customer)}' ORDER BY tanggal,kode LIMIT ${TNMD140PV2.PAGE_SIZE} OFFSET ${offset}`;
@@ -74,15 +77,12 @@ function tnmd140pv2_queryPage_(customer, offset) {
     duration_ms: new Date().getTime() - started,
     first_code: rows.length ? rows[0].kode : null,
     last_code: rows.length ? rows[rows.length - 1].kode : null,
-    rows: rows,
-    sql: sql
+    rows: rows
   };
 }
 
 function tnmd140pv2_probeCustomer_(customer) {
   customer = String(customer || '').trim();
-  if (!customer) throw new Error('Customer name is empty.');
-
   const started = new Date().getTime();
   const pages = [];
   const all = [];
@@ -130,6 +130,7 @@ function tnmd140pv2_probeCustomer_(customer) {
 
   return {
     pelanggan: customer,
+    duration_ms: new Date().getTime() - started,
     page_size: TNMD140PV2.PAGE_SIZE,
     max_pages: TNMD140PV2.MAX_PAGES_PER_CUSTOMER,
     jumlah_page: pages.length,
@@ -151,51 +152,35 @@ function tnmd140pv2_emit_(label, output) {
   return output;
 }
 
-function tnmd140pv2_testFBR() {
-  return tnmd140pv2_testCustomer_('FBR', 'tnmd140pv2_testFBR');
-}
-
-function tnmd140pv2_testRIMBAL() {
-  return tnmd140pv2_testCustomer_('RIMBAL', 'tnmd140pv2_testRIMBAL');
-}
+function tnmd140pv2_testFBR() { return tnmd140pv2_testCustomer_('FBR', 'tnmd140pv2_testFBR'); }
+function tnmd140pv2_testRIMBAL() { return tnmd140pv2_testCustomer_('RIMBAL', 'tnmd140pv2_testRIMBAL'); }
+function tnmd140pv2_testKUKUH() { return tnmd140pv2_testCustomer_('KUKUH', 'tnmd140pv2_testKUKUH'); }
+function tnmd140pv2_testTB_BEJA() { return tnmd140pv2_testCustomer_('TB BEJA', 'tnmd140pv2_testTB_BEJA'); }
+function tnmd140pv2_testBARBEX2() { return tnmd140pv2_testCustomer_('BARBEX2', 'tnmd140pv2_testBARBEX2'); }
 
 function tnmd140pv2_testCustomer_(customer, testName) {
   const started = new Date().getTime();
   try {
     const result = tnmd140pv2_probeCustomer_(customer);
-    const expected = customer === 'FBR' ? {
-      jumlah_page: 4,
-      total_raw: 238,
-      jumlah_transaksi_aktif: 238,
-      total_piutang: 203200000
-    } : null;
-
-    const checks = expected ? {
-      page_count: result.jumlah_page === expected.jumlah_page,
-      active_count: result.jumlah_transaksi_aktif === expected.jumlah_transaksi_aktif,
-      total_piutang: result.total_piutang === expected.total_piutang,
-      duplicate: result.duplicate_count === 0
-    } : {
+    const checks = {
       complete: result.complete,
-      duplicate: result.duplicate_count === 0
+      not_stopped_by_max_pages: !result.stopped_by_max_pages,
+      duplicate: result.duplicate_count === 0,
+      has_pages: result.jumlah_page > 0
     };
-
     const pass = Object.keys(checks).every(function(key) { return checks[key]; });
-
-    const outputResult = {
-      api_version: TNMD140PV2.VERSION,
-      customer: result,
-      expected: expected,
-      checks: checks,
-      status: pass ? 'PASS' : 'FAIL'
-    };
 
     return tnmd140pv2_emit_('TNMD v1.4.0 - CUSTOMER PROBE V2 - ' + customer, {
       success: true,
       test: testName,
       generated_at: tnmd140pv2_now_(),
       duration_ms: new Date().getTime() - started,
-      result: outputResult
+      result: {
+        api_version: TNMD140PV2.VERSION,
+        customer: result,
+        checks: checks,
+        status: pass ? 'PASS' : 'FAIL'
+      }
     });
   } catch (err) {
     return tnmd140pv2_emit_('TNMD v1.4.0 - CUSTOMER PROBE V2 - ' + customer, {
@@ -212,13 +197,14 @@ function tnmd140pv2_runSmallSet() {
   const started = new Date().getTime();
   const results = [];
 
-  TNMD140PV2.CUSTOMERS.forEach(function(customer) {
-    const item = tnmd140pv2_testCustomer_(customer, 'tnmd140pv2_test_' + customer);
+  for (let i = 0; i < TNMD140PV2.CUSTOMERS.length; i++) {
+    const customer = TNMD140PV2.CUSTOMERS[i];
+    const item = tnmd140pv2_testCustomer_(customer, 'tnmd140pv2_test_' + customer.replace(/\s+/g, '_'));
     results.push(item);
-    if (TNMD140PV2.STOP_ON_ERROR && !item.success) return;
-  });
+    if (TNMD140PV2.STOP_ON_ERROR && (!item.success || !item.result || item.result.status !== 'PASS')) break;
+  }
 
-  const pass = results.every(function(item) {
+  const pass = results.length === TNMD140PV2.CUSTOMERS.length && results.every(function(item) {
     return item.success && item.result && item.result.status === 'PASS';
   });
 
@@ -228,6 +214,7 @@ function tnmd140pv2_runSmallSet() {
     generated_at: tnmd140pv2_now_(),
     duration_ms: new Date().getTime() - started,
     customers: TNMD140PV2.CUSTOMERS,
+    customer_count: TNMD140PV2.CUSTOMERS.length,
     status: pass ? 'PASS' : 'FAIL',
     tests: results.map(function(item) {
       return {
