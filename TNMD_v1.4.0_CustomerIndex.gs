@@ -1,20 +1,11 @@
 /**
  * TNMD v1.4.0 - Customer Index Engine
- *
  * Development branch: dev/v1.4
  * Baseline: TNMD v1.3.2 (frozen)
  *
- * Purpose:
- *   Build one reusable index of customers that currently have piutang > 0.
- *   The index aggregates transaction count and piutang by customer and
- *   category, so later Customer List / Search / Detail APIs do not need to
- *   fetch every customer ledger individually.
- *
- * Dependencies from the stable TNMD core:
- *   - requestSid_(sql)
- *   - CUSTOMER_CABANG
- *
- * This module does NOT replace Code.gs, v1.3, v1.3.1, or v1.3.2.
+ * Builds a reusable customer index for active piutang.
+ * Adds explicit JSON logging so Apps Script execution logs always show
+ * the test result instead of relying only on the function return value.
  */
 
 const TNMD140 = {
@@ -35,14 +26,16 @@ function tnmd140_num_(value) {
   return isNaN(n) ? 0 : n;
 }
 
-function tnmd140_escapeSql_(value) {
-  return String(value == null ? '' : value).replace(/'/g, "''");
-}
-
 function tnmd140_requireCore_() {
   if (typeof requestSid_ !== 'function') {
     throw new Error('requestSid_ is not defined. Load the TNMD core first.');
   }
+}
+
+function tnmd140_logJson_(label, value) {
+  const json = JSON.stringify(value, null, 2);
+  Logger.log(label + '\n' + json);
+  return value;
 }
 
 function tnmd140_category_(customer, jenis) {
@@ -94,10 +87,6 @@ function tnmd140_newCustomer_(customer, jenis) {
   };
 }
 
-/**
- * Build the complete customer index from the SID active-piutang dataset.
- * Pagination stops when the raw SID page is shorter than PAGE_SIZE.
- */
 function tnmd140_buildCustomerIndex() {
   const customers = {};
   const categoryTotals = {
@@ -128,10 +117,8 @@ function tnmd140_buildCustomerIndex() {
 
       customers[key].jumlah_transaksi++;
       customers[key].total_piutang += row.piutang;
-
       categoryTotals[category].jumlah_transaksi++;
       categoryTotals[category].total_piutang += row.piutang;
-
       totalTransactions++;
       totalPiutang += row.piutang;
     });
@@ -188,13 +175,9 @@ function tnmd140_result_(test, started, fn) {
   }
 }
 
-/**
- * First v1.4.0 validation.
- * Uses the same baseline totals already proven by TNMD v1.3.2.
- */
 function tnmd140_testCustomerIndex() {
   const started = new Date().getTime();
-  return tnmd140_result_('tnmd140_testCustomerIndex', started, function() {
+  const output = tnmd140_result_('tnmd140_testCustomerIndex', started, function() {
     const index = tnmd140_buildCustomerIndex();
     const checks = {
       transaction_count: index.total.transaksi === TNMD140.DEFAULT_EXPECTED_TRANSACTIONS,
@@ -220,12 +203,13 @@ function tnmd140_testCustomerIndex() {
       status: pass ? 'PASS' : 'FAIL'
     };
   });
+
+  return tnmd140_logJson_('TNMD v1.4.0 - Customer Index Test', output);
 }
 
-/** Lightweight structural test without dumping the entire index. */
 function tnmd140_testCustomerIndexStructure() {
   const started = new Date().getTime();
-  return tnmd140_result_('tnmd140_testCustomerIndexStructure', started, function() {
+  const output = tnmd140_result_('tnmd140_testCustomerIndexStructure', started, function() {
     const index = tnmd140_buildCustomerIndex();
     const first = index.data.length ? index.data[0] : null;
 
@@ -236,15 +220,15 @@ function tnmd140_testCustomerIndexStructure() {
         row.total_piutang > 0;
     });
 
-    const pass = !!first && validCustomerRows;
-
     return {
       customer_count: index.data.length,
       first_customer: first,
       valid_customer_rows: validCustomerRows,
-      status: pass ? 'PASS' : 'FAIL'
+      status: first && validCustomerRows ? 'PASS' : 'FAIL'
     };
   });
+
+  return tnmd140_logJson_('TNMD v1.4.0 - Customer Index Structure Test', output);
 }
 
 function tnmd140_runAllTests() {
@@ -255,10 +239,10 @@ function tnmd140_runAllTests() {
   ];
 
   const status = tests.every(function(item) {
-    return item.success && (!item.result || item.result.status !== 'FAIL');
+    return item && item.success && (!item.result || item.result.status !== 'FAIL');
   }) ? 'PASS' : 'FAIL';
 
-  return {
+  const output = {
     success: status === 'PASS',
     test: 'tnmd140_runAllTests',
     generated_at: tnmd140_now_(),
@@ -273,4 +257,6 @@ function tnmd140_runAllTests() {
       };
     })
   };
+
+  return tnmd140_logJson_('TNMD v1.4.0 - ALL TESTS', output);
 }
