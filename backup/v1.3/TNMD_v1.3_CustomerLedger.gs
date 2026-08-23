@@ -163,10 +163,18 @@ function tnmd13_getCustomerSummary(customer) {
   };
 }
 
+/**
+ * Standardized test result wrapper.
+ * Every test using this wrapper is also written to the Apps Script log as
+ * readable JSON, so running the function from the editor produces visible
+ * evidence instead of only returning an object internally.
+ */
 function tnmd13_result_(test, started, fn) {
+  let output;
+
   try {
     const result = fn();
-    return {
+    output = {
       success: true,
       test: test,
       generated_at: tnmd13_now_(),
@@ -174,7 +182,7 @@ function tnmd13_result_(test, started, fn) {
       result: result
     };
   } catch (err) {
-    return {
+    output = {
       success: false,
       test: test,
       generated_at: tnmd13_now_(),
@@ -182,6 +190,9 @@ function tnmd13_result_(test, started, fn) {
       error: err && err.message ? err.message : String(err)
     };
   }
+
+  Logger.log(JSON.stringify(output, null, 2));
+  return output;
 }
 
 /** Test page 1 only. */
@@ -265,7 +276,7 @@ function tnmd13_runAllTests() {
     return item.success && (!item.result || item.result.status !== 'FAIL');
   }) ? 'PASS' : 'FAIL';
 
-  return {
+  const output = {
     success: status === 'PASS',
     test: 'tnmd13_runAllTests',
     generated_at: tnmd13_now_(),
@@ -280,4 +291,7 @@ function tnmd13_runAllTests() {
       };
     })
   };
+
+  Logger.log(JSON.stringify(output, null, 2));
+  return output;
 }
