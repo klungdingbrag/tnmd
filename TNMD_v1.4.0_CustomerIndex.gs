@@ -3,9 +3,14 @@
  * Development branch: dev/v1.4
  * Baseline: TNMD v1.3.2 (frozen)
  *
- * Builds a reusable customer index for active piutang.
- * Adds explicit JSON logging so Apps Script execution logs always show
- * the test result instead of relying only on the function return value.
+ * Builds a reusable customer index from the proven v1.3.2 customer-ledger
+ * pagination path. We intentionally do NOT use a global `WHERE piutang > 0`
+ * query because that query returned zero rows in the SID environment.
+ *
+ * Strategy:
+ *   1. Discover customers from the existing proven dashboard query.
+ *   2. For each customer, reuse the v1.3.2 pagination behavior.
+ *   3. Aggregate active piutang rows into one customer index.
  */
 
 const TNMD140 = {
@@ -38,6 +43,10 @@ function tnmd140_logJson_(label, value) {
   return value;
 }
 
+function tnmd140_escapeSql_(value) {
+  return String(value == null ? '' : value).replace(/'/g, "''");
+}
+
 function tnmd140_category_(customer, jenis) {
   const name = String(customer || '').trim();
   const type = String(jenis || '').trim().toUpperCase();
@@ -54,14 +63,55 @@ function tnmd140_category_(customer, jenis) {
   return 'LAIN';
 }
 
-function tnmd140_fetchPage_(offset) {
+/**
+ * Discover the customer universe using the same broad summary query that
+ * was already proven by the dashboard tests. This query is intentionally
+ * kept simple and does not apply the unsupported global piutang filter.
+ */
+function tnmd140_discoverCustomers_() {
   tnmd140_requireCore_();
 
-  const safeOffset = Math.max(0, Number(offset) || 0);
   const sql = `
     SELECT pelanggan,jenis,piutang
     FROM penjualan
-    WHERE piutang > 0
+  `;
+
+  const response = requestSid_(sql);
+  const rows = Array.isArray(response) ? response :
+    (response && Array.isArray(response.data) ? response.data : []);
+
+  const customers = {};
+  rows.forEach(function(row) {
+    const customer = String(row.pelanggan || '').trim();
+    if (!customer) return;
+    if (!customers[customer]) {
+      customers[customer] = {
+        pelanggan: customer,
+        jenis: String(row.jenis || '').trim()
+      };
+    }
+  });
+
+  return Object.keys(customers).map(function(key) {
+    return customers[key];
+  });
+}
+
+/**
+ * Fetch one raw customer page using the exact pagination pattern proven by
+ * TNMD v1.3.2. The raw page must include piutang=0 rows so OFFSET remains
+ * stable; filtering happens after the page is received.
+ */
+function tnmd140_fetchCustomerPage_(customer, offset) {
+  tnmd140_requireCore_();
+
+  const safeCustomer = tnmd140_escapeSql_(customer);
+  const safeOffset = Math.max(0, Number(offset) || 0);
+
+  const sql = `
+    SELECT kode,tanggal,pelanggan,jenis,piutang
+    FROM penjualan
+    WHERE pelanggan='${safeCustomer}'
     LIMIT ${TNMD140.PAGE_SIZE} OFFSET ${safeOffset}
   `;
 
@@ -71,23 +121,17 @@ function tnmd140_fetchPage_(offset) {
 
   return rows.map(function(row) {
     return {
-      pelanggan: String(row.pelanggan || '').trim(),
+      kode: row.kode || '',
+      tanggal: row.tanggal || '',
+      pelanggan: String(row.pelanggan || customer).trim(),
       jenis: String(row.jenis || '').trim(),
       piutang: tnmd140_num_(row.piutang)
     };
   });
 }
 
-function tnmd140_newCustomer_(customer, jenis) {
-  return {
-    pelanggan: customer,
-    kategori: tnmd140_category_(customer, jenis),
-    jumlah_transaksi: 0,
-    total_piutang: 0
-  };
-}
-
 function tnmd140_buildCustomerIndex() {
+  const discovered = tnmd140_discoverCustomers_();
   const customers = {};
   const categoryTotals = {
     TOKO: { jumlah_transaksi: 0, total_piutang: 0 },
@@ -96,36 +140,50 @@ function tnmd140_buildCustomerIndex() {
     LAIN: { jumlah_transaksi: 0, total_piutang: 0 }
   };
 
-  let offset = 0;
   let totalTransactions = 0;
   let totalPiutang = 0;
-  let pageCount = 0;
+  let ledgerCustomers = 0;
+  let customerPageCalls = 0;
 
-  while (true) {
-    const rows = tnmd140_fetchPage_(offset);
-    pageCount++;
+  discovered.forEach(function(discoveredCustomer) {
+    const customer = discoveredCustomer.pelanggan;
+    let offset = 0;
+    let customerHasActive = false;
 
-    rows.forEach(function(row) {
-      if (!row.pelanggan || row.piutang <= 0) return;
+    while (true) {
+      const rows = tnmd140_fetchCustomerPage_(customer, offset);
+      customerPageCalls++;
 
-      const category = tnmd140_category_(row.pelanggan, row.jenis);
-      const key = row.pelanggan;
+      rows.forEach(function(row) {
+        if (!row.pelanggan || row.piutang <= 0) return;
 
-      if (!customers[key]) {
-        customers[key] = tnmd140_newCustomer_(row.pelanggan, row.jenis);
-      }
+        const category = tnmd140_category_(row.pelanggan, row.jenis);
+        const key = row.pelanggan;
 
-      customers[key].jumlah_transaksi++;
-      customers[key].total_piutang += row.piutang;
-      categoryTotals[category].jumlah_transaksi++;
-      categoryTotals[category].total_piutang += row.piutang;
-      totalTransactions++;
-      totalPiutang += row.piutang;
-    });
+        if (!customers[key]) {
+          customers[key] = {
+            pelanggan: key,
+            kategori: category,
+            jumlah_transaksi: 0,
+            total_piutang: 0
+          };
+        }
 
-    if (rows.length < TNMD140.PAGE_SIZE) break;
-    offset += TNMD140.PAGE_SIZE;
-  }
+        customers[key].jumlah_transaksi++;
+        customers[key].total_piutang += row.piutang;
+        categoryTotals[category].jumlah_transaksi++;
+        categoryTotals[category].total_piutang += row.piutang;
+        totalTransactions++;
+        totalPiutang += row.piutang;
+        customerHasActive = true;
+      });
+
+      if (rows.length < TNMD140.PAGE_SIZE) break;
+      offset += TNMD140.PAGE_SIZE;
+    }
+
+    if (customerHasActive) ledgerCustomers++;
+  });
 
   const data = Object.keys(customers).map(function(key) {
     return customers[key];
@@ -145,9 +203,10 @@ function tnmd140_buildCustomerIndex() {
       piutang: totalPiutang,
       jumlah_customer: data.length
     },
-    pagination: {
-      page_size: TNMD140.PAGE_SIZE,
-      jumlah_page: pageCount
+    discovery: {
+      jumlah_customer_ditemukan: discovered.length,
+      jumlah_customer_aktif: ledgerCustomers,
+      customer_page_calls: customerPageCalls
     },
     kategori: categoryTotals,
     data: data
@@ -182,8 +241,7 @@ function tnmd140_testCustomerIndex() {
     const checks = {
       transaction_count: index.total.transaksi === TNMD140.DEFAULT_EXPECTED_TRANSACTIONS,
       total_piutang: index.total.piutang === TNMD140.DEFAULT_EXPECTED_PIUTANG,
-      customer_count: index.total.jumlah_customer === TNMD140.DEFAULT_EXPECTED_CUSTOMERS,
-      page_size: index.pagination.page_size === TNMD140.PAGE_SIZE
+      customer_count: index.total.jumlah_customer === TNMD140.DEFAULT_EXPECTED_CUSTOMERS
     };
 
     const pass = Object.keys(checks).every(function(key) {
@@ -198,7 +256,7 @@ function tnmd140_testCustomerIndex() {
         piutang: TNMD140.DEFAULT_EXPECTED_PIUTANG,
         jumlah_customer: TNMD140.DEFAULT_EXPECTED_CUSTOMERS
       },
-      pagination: index.pagination,
+      discovery: index.discovery,
       checks: checks,
       status: pass ? 'PASS' : 'FAIL'
     };
