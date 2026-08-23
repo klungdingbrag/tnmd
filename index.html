@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f172a">
+  <title>TNMD — Customer Intelligence</title>
+  <meta name="description" content="TNMD Customer Intelligence — dashboard piutang dan customer untuk Nusantara Building Material.">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark">T</div>
+        <div>
+          <div class="brand-name">TNMD</div>
+          <div class="brand-subtitle">Customer Intelligence</div>
+        </div>
+      </div>
+
+      <nav class="nav" aria-label="Navigasi utama">
+        <button class="nav-item active" data-view="dashboard"><span class="nav-icon">▦</span><span>Dashboard</span></button>
+        <button class="nav-item" data-view="customers"><span class="nav-icon">♙</span><span>Customers</span></button>
+        <button class="nav-item" data-view="ranking"><span class="nav-icon">↕</span><span>Ranking</span></button>
+        <button class="nav-item" data-view="branch"><span class="nav-icon">⌂</span><span>Branch</span></button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="connection-mini"><span class="status-dot"></span><span>Connected</span></div>
+        <div>API v1.4.1 · Read only</div>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">NUSANTARA BUILDING MATERIAL</div>
+          <h1 id="page-title">Customer Intelligence</h1>
+        </div>
+        <div class="topbar-right">
+          <div class="api-status" id="api-status"><span class="status-dot"></span><span>Live API</span></div>
+          <button class="icon-button mobile-menu" id="mobile-menu" aria-label="Buka menu">☰</button>
+        </div>
+      </header>
+
+      <section class="view" id="dashboard-view">
+        <div class="section-heading">
+          <div>
+            <h2>Overview</h2>
+            <p>Ringkasan customer dan piutang aktif.</p>
+          </div>
+          <button class="button secondary" id="refresh-dashboard">↻ Refresh</button>
+        </div>
+
+        <div class="kpi-grid" id="kpi-grid">
+          <article class="kpi-card"><span>Total Customer</span><strong id="kpi-customers">—</strong><small id="kpi-category">Memuat data...</small></article>
+          <article class="kpi-card"><span>Piutang Aktif</span><strong id="kpi-piutang">—</strong><small id="kpi-piutang-full">—</small></article>
+          <article class="kpi-card"><span>Transaksi Aktif</span><strong id="kpi-active">—</strong><small id="kpi-raw">—</small></article>
+          <article class="kpi-card"><span>Data Pages</span><strong id="kpi-pages">—</strong><small id="kpi-complete">—</small></article>
+        </div>
+
+        <div class="insight-grid">
+          <section class="panel top-debt-panel">
+            <div class="panel-heading">
+              <div><h3>Top Piutang</h3><p>Customer dengan outstanding terbesar.</p></div>
+              <span class="badge">TOP 5</span>
+            </div>
+            <div id="top-debt-list" class="rank-list"><div class="loading-line"></div><div class="loading-line"></div><div class="loading-line"></div></div>
+          </section>
+
+          <section class="panel insight-panel">
+            <div class="panel-heading"><div><h3>Business Insight</h3><p>Indikator konsentrasi piutang.</p></div></div>
+            <div id="business-insight" class="insight-content"><div class="loading-block"></div></div>
+          </section>
+        </div>
+
+        <section class="panel customer-preview">
+          <div class="panel-heading">
+            <div><h3>Customers</h3><p>Daftar customer aktif berdasarkan Customer Index V2.</p></div>
+            <button class="button secondary" data-view="customers">Lihat semua →</button>
+          </div>
+          <div id="preview-table" class="table-wrap"></div>
+        </section>
+      </section>
+
+      <section class="view hidden" id="customers-view">
+        <div class="section-heading">
+          <div><h2>Customers</h2><p>Kelola dan telusuri ringkasan customer berdasarkan index terverifikasi.</p></div>
+          <button class="button secondary" id="refresh-customers">↻ Refresh</button>
+        </div>
+        <section class="panel">
+          <div class="toolbar">
+            <label class="search-box"><span>⌕</span><input id="customer-search" type="search" placeholder="Cari customer..." autocomplete="off"></label>
+            <select id="customer-category" class="select"><option value="">Semua kategori</option><option value="CABANG">CABANG</option></select>
+            <select id="customer-sort" class="select">
+              <option value="piutang_desc">Piutang terbesar</option>
+              <option value="piutang_asc">Piutang terkecil</option>
+              <option value="active_desc">Transaksi aktif terbesar</option>
+              <option value="name_asc">Nama A–Z</option>
+            </select>
+          </div>
+          <div id="customer-table" class="table-wrap"></div>
+          <div id="customer-pagination" class="pagination"></div>
+        </section>
+      </section>
+
+      <section class="view hidden" id="ranking-view">
+        <div class="section-heading"><div><h2>Ranking</h2><p>Customer dengan piutang aktif terbesar.</p></div><button class="button secondary" id="refresh-ranking">↻ Refresh</button></div>
+        <section class="panel"><div id="ranking-table" class="table-wrap"></div></section>
+      </section>
+
+      <section class="view hidden" id="branch-view">
+        <div class="section-heading"><div><h2>Branch</h2><p>Ringkasan seluruh customer kategori CABANG.</p></div><button class="button secondary" id="refresh-branch">↻ Refresh</button></div>
+        <div class="kpi-grid branch-kpis" id="branch-kpis"></div>
+        <section class="panel"><div id="branch-table" class="table-wrap"></div></section>
+      </section>
+    </main>
+  </div>
+
+  <div class="drawer-backdrop hidden" id="drawer-backdrop"></div>
+  <aside class="customer-drawer" id="customer-drawer" aria-hidden="true">
+    <div class="drawer-header"><div><div class="eyebrow">CUSTOMER DETAIL</div><h2 id="drawer-name">Customer</h2></div><button class="icon-button" id="drawer-close" aria-label="Tutup">×</button></div>
+    <div id="drawer-content" class="drawer-content"></div>
+  </aside>
+
+  <div class="toast hidden" id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>
