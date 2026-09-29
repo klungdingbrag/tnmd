@@ -1,1 +1,1 @@
-window.TNMD_CONFIG=Object.freeze({API_URL:"",APP_NAME:"TB Nusantara Business System",API_TIMEOUT_MS:20000});
+window.TNMD_CONFIG=Object.freeze({https://script.google.com/macros/s/AKfycbxG1-435536getyWlABjgtLH4v5y4EI1_a2w-SZ1NTNRCogMBF5IANscrNeBgK0sBp6/exec:"",APP_NAME:"TB Nusantara Business System",API_TIMEOUT_MS:20000});
