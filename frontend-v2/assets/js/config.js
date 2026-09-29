@@ -1,0 +1,1 @@
+window.TNMD_CONFIG=Object.freeze({API_URL:"",APP_NAME:"TB Nusantara Business System",API_TIMEOUT_MS:20000});
